@@ -1,0 +1,106 @@
+""" 조선일보 특정 키워드를 포함하는, 특정 날짜 이전 기사 내용 크롤러(정확도순 검색)
+    python [모듈 이름] [키워드] [가져올 페이지 숫자] [결과 파일명]
+    한 페이지에 기사 15개
+"""
+# -+- coding:UTF-8 -*-
+import sys
+from bs4 import BeautifulSoup
+import urllib.request
+from urllib.parse import quote
+import re
+import pandas as pd
+import io
+TARGET_URL_BEFORE_PAGE_NUM = "http://search.chosun.com/search/news.search"
+TARGET_URL_BEFORE_KEWORD = '?query='
+TARGET_URL_BEFORE_PAGE = '&pageno='
+TARGET_URL_REST = '&orderby=&naviarraystr=&kind=&cont1=&cont2=&cont5=&categoryname=&categoryd2=&c_scope=&sdate=&edate=&premium='
+
+def text_cleaning(text):
+    result_str = ''
+    for item in text:
+        #print(item)
+        #cleaned_text = re.sub('[a-zA-Z]', '', item)
+        cleaned_text = re.sub('[\{\}\[\]\/?,;:|\)*~`!^\-_+<>@\#$%&\\\=\(\'\"]',
+                          '', item)
+        result_str = (result_str + cleaned_text).strip("\n")
+    return result_str
+
+# 기사 검색 페이지에서 기사 제목에 링크된 기사 본문 주소 받아오기
+def get_link_from_news_title(page_num, URL):
+    nalzza = []
+    zemok = []
+    bonmoon = []
+
+    for i in range(page_num):
+        current_page_num = i+1
+        position = URL.index('pageno=')
+        URL_with_page_num = URL[: position+7] + str(current_page_num) \
+                            + URL[position+7 :]
+        source_code_from_URL = urllib.request.urlopen(URL_with_page_num)
+        soup = BeautifulSoup(source_code_from_URL, "lxml", from_encoding='utf-8')
+
+        for title in soup.find_all('dd', 'thumb'):
+            title_link = title.select('a')
+            article_URL = title_link[0]['href']
+            if article_URL[7:10] == "app" or article_URL[7:16] == "brandplus" or article_URL[7:10] == "edu" or article_URL[23:30] == "misaeng" :
+                continue
+            print(article_URL)
+            nalzza, zemok, bonmoon = get_text(article_URL, nalzza, zemok, bonmoon)
+
+    #print(len(nalzza),len(zemok),len(bonmoon))
+    result = {"날짜": nalzza, "제목": zemok, "본문": bonmoon}
+    df = pd.DataFrame(result)  # df로 변환
+
+    return df
+
+def final_xl_file(keyword, df):
+
+    # 새로 만들 파일이름 지정
+    RESULT_PATH ='C:/Users/HanYong/Desktop/Python/new/'  #결과 저장할 경로
+    outputFileName = keyword + '.xlsx'
+    df.to_excel(RESULT_PATH+outputFileName,sheet_name='sheet1')
+
+# 기사 본문 내용 긁어오기 (위 함수 내부에서 기사 본문 주소 받아 사용되는 함수)
+def get_text(URL,  nalzza, zemok, bonmoon):
+    source_code_from_url = urllib.request.urlopen(URL)
+    soup = BeautifulSoup(source_code_from_url, 'lxml', from_encoding='utf-8')
+    ## 제목 긁어오기
+    title_of_article = soup.find("h1", id="news_title_text_id")
+    #print(type(title_of_article))
+
+
+    title_of_article = soup.find("h1",id="news_title_text_id")
+    title_of_article = str(title_of_article)
+
+    #print(title_of_article,type(title_of_article))
+    temp_text = (text_cleaning(title_of_article))
+    zemok.append(temp_text[20:])
+
+    ## 기사 본문 긁어오기
+    content_of_article = soup.select('div.par')
+    article_of_one = ''
+    for item in content_of_article:
+        string_item = item.text
+        article_of_one += string_item
+    bonmoon.append(text_cleaning(article_of_one))
+
+    ## 날짜 긁어오기
+    date_of_article = soup.select('div.news_date')
+    string_date = str(date_of_article)
+    string_date = string_date.replace("입력", "")
+    temp_date = text_cleaning(string_date)
+    nalzza.append(temp_date[18:])
+
+    return nalzza, zemok, bonmoon
+
+# 메인함수
+def main():
+    keyword = input('키워드:')
+    page_num = int(input('페이지 수:'))
+    target_URL = TARGET_URL_BEFORE_PAGE_NUM + TARGET_URL_BEFORE_KEWORD \
+                 + quote(keyword) + TARGET_URL_BEFORE_PAGE + TARGET_URL_REST
+    dataframe = get_link_from_news_title(page_num, target_URL)
+    final_xl_file(keyword, dataframe)
+
+if __name__ == '__main__':
+    main()
